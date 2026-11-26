@@ -1,161 +1,210 @@
 package redsgreens.SupplySign;
 
+import net.kyori.adventure.text.Component;
+import net.kyori.adventure.text.format.NamedTextColor;
+import net.kyori.adventure.text.serializer.legacy.LegacyComponentSerializer;
+import net.kyori.adventure.text.serializer.plain.PlainTextComponentSerializer;
+
 import org.bukkit.Material;
+import org.bukkit.Tag;
 import org.bukkit.block.Block;
 import org.bukkit.block.BlockFace;
 import org.bukkit.block.Sign;
+import org.bukkit.block.data.BlockData;
+import org.bukkit.block.data.Directional;
+import org.bukkit.block.sign.Side;
+import org.bukkit.block.sign.SignSide;
 
 public class SupplySignUtil {
-	
-	// check to see if this is a chest without a supply sign already on it
-	public static boolean isValidChest(Block b){
-		if(b.getType() != Material.CHEST)
-			return false;
 
-		Block[] adjBlocks = new Block[]{b.getRelative(BlockFace.NORTH), b.getRelative(BlockFace.EAST), b.getRelative(BlockFace.SOUTH), b.getRelative(BlockFace.WEST)};
+	// the first line of a supply sign: "[Supply]" in dark blue (legacy form: section sign, 1, "[Supply]")
+	public static final String HEADER_LEGACY = "\u00A71[Supply]";
+	public static final Component HEADER = Component.text("[Supply]", NamedTextColor.DARK_BLUE);
 
-		for(int i=0; i<adjBlocks.length; i++){
-			if(adjBlocks[i].getType() == Material.WALL_SIGN){
-				Sign sign = (Sign)adjBlocks[i].getState();
-				if(sign.getLine(0).equals("§1[Supply]"))
-					return false;
-			}
-		}
-		
-		return true;
-	}
+	private static final BlockFace[] SIDES = new BlockFace[]{BlockFace.NORTH, BlockFace.EAST, BlockFace.SOUTH, BlockFace.WEST};
 
-	// check to see if this is a dispenser without a supply sign already on it
-	public static boolean isValidDispenser(Block b){
-		if(b.getType() != Material.DISPENSER)
-			return false;
+	/* ---------- text helpers ---------- */
 
-		Block[] adjBlocks = new Block[]{b.getRelative(BlockFace.NORTH), b.getRelative(BlockFace.EAST), b.getRelative(BlockFace.SOUTH), b.getRelative(BlockFace.WEST)};
-
-		for(int i=0; i<adjBlocks.length; i++){
-			if(adjBlocks[i].getType() == Material.WALL_SIGN){
-				Sign sign = (Sign)adjBlocks[i].getState();
-				if(sign.getLine(0).equals("§1[Supply]"))
-					return false;
-			}
-		}
-		
-		return true;
-	}
-
-	// check to see if this is a single wide chest
-	public static boolean isSingleChest(Block b){
-		
-		if(b.getType() != Material.CHEST)
-			return false;
-
-		Block[] adjBlocks = new Block[]{b.getRelative(BlockFace.NORTH), b.getRelative(BlockFace.EAST), b.getRelative(BlockFace.SOUTH), b.getRelative(BlockFace.WEST)};
-
-		for(int i=0; i<adjBlocks.length; i++)
-			if(adjBlocks[i].getType() == Material.CHEST)
-				return false;
-	
-		return true;
-	}
-
-	// check to see if this is a single wide chest
-	public static boolean isDoubleChest(Block b){
-		
-		if(b.getType() != Material.CHEST)
-			return false;
-
-		Block[] adjBlocks = new Block[]{b.getRelative(BlockFace.NORTH), b.getRelative(BlockFace.EAST), b.getRelative(BlockFace.SOUTH), b.getRelative(BlockFace.WEST)};
-
-		for(int i=0; i<adjBlocks.length; i++)
-			if(adjBlocks[i].getType() == Material.CHEST)
-				return true;
-	
-		return false;
-	}
-
-	// find a sign attached to a chest
-	public static Sign getAttachedSign(Block b){
-		if((b.getType() != Material.CHEST) && (b.getType() != Material.DISPENSER))
-			return null;
-
-		Block[] adjBlocks;
-
-		if(isSingleChest(b) || (b.getType() == Material.DISPENSER))
-			// it's a single chest or dispenser, so check the four adjacent blocks
-			adjBlocks = new Block[]{b.getRelative(BlockFace.NORTH), b.getRelative(BlockFace.EAST), b.getRelative(BlockFace.SOUTH), b.getRelative(BlockFace.WEST)};
-			
-		else if (isDoubleChest(b)){
-			// it's a double, so find the other half and check faces of both blocks
-			Block b2 = findOtherHalfofChest(b);
-			adjBlocks = new Block[]{b.getRelative(BlockFace.NORTH), b.getRelative(BlockFace.EAST), b.getRelative(BlockFace.SOUTH), b.getRelative(BlockFace.WEST), b2.getRelative(BlockFace.NORTH), b2.getRelative(BlockFace.EAST), b2.getRelative(BlockFace.SOUTH), b2.getRelative(BlockFace.WEST)};
-		}
-		else
-			return null;
-
-		for(int i=0; i<adjBlocks.length; i++)
-			if(isSupplySign(adjBlocks[i]))
-				return (Sign)adjBlocks[i].getState();
-		
-		return null;
-	}
-
-	public static Block findOtherHalfofChest(Block b)
+	public static String plain(Component c)
 	{
-		// didn't find one, so find the other half of the chest and check it's faces
-		Block[] adjBlocks = new Block[]{b.getRelative(BlockFace.NORTH), b.getRelative(BlockFace.EAST), b.getRelative(BlockFace.SOUTH), b.getRelative(BlockFace.WEST)};
-		for(int i=0; i<adjBlocks.length; i++)
-			if(adjBlocks[i].getType() == Material.CHEST)
-				return adjBlocks[i]; 
-		
-		return null;
-	}
-	
-	// get the block that has a wall sign on it
-	public static Block getBlockBehindWallSign(Sign sign)
-	{
-		Block blockAgainst = null;
-		Block signBlock = sign.getBlock();
-		
-		if(sign.getType() == Material.WALL_SIGN)
-		{
-			switch(signBlock.getData()){ // determine sign direction and get block behind it
-			case 2: // facing north
-				blockAgainst = signBlock.getRelative(BlockFace.SOUTH);
-				break;
-			case 3: // facing south
-				blockAgainst = signBlock.getRelative(BlockFace.NORTH);
-				break;
-			case 4: // facing west
-				blockAgainst = signBlock.getRelative(BlockFace.EAST);
-				break;
-			case 5: // facing east
-				blockAgainst = signBlock.getRelative(BlockFace.WEST);
-				break;
-			}
-		}
-		
-		return blockAgainst;
+		return c == null ? "" : PlainTextComponentSerializer.plainText().serialize(c);
 	}
 
 	public static String stripColorCodes(String str)
 	{
-		return str.replaceAll("\u00A7[0-9a-fA-F]", "");
+		return str.replaceAll("\u00A7[0-9a-fA-Fk-oK-OrR]", "");
+	}
+
+	// true if this line is the blue "[Supply]" header
+	public static boolean isSupplyLine(Component line)
+	{
+		return line != null && LegacyComponentSerializer.legacySection().serialize(line).equals(HEADER_LEGACY);
+	}
+
+	// true if this line is a not-yet-formatted "[Supply]" that a player just typed
+	public static boolean isNewSupplyLine(Component line)
+	{
+		return isSupplyLine(line) || plain(line).trim().equalsIgnoreCase("[Supply]");
+	}
+
+	/* ---------- sign helpers ---------- */
+
+	public static boolean isSignType(Material m)
+	{
+		return Tag.ALL_SIGNS.isTagged(m);
+	}
+
+	public static boolean isStandingSignType(Material m)
+	{
+		return Tag.STANDING_SIGNS.isTagged(m);
+	}
+
+	public static boolean isWallSignType(Material m)
+	{
+		return Tag.WALL_SIGNS.isTagged(m);
+	}
+
+	// the item a sign block drops: OAK_WALL_SIGN -> OAK_SIGN, SPRUCE_WALL_HANGING_SIGN -> SPRUCE_HANGING_SIGN
+	public static Material signItemType(Material m)
+	{
+		Material item = Material.getMaterial(m.name().replace("_WALL_", "_"));
+		return item != null ? item : m;
+	}
+
+	// OAK_SIGN -> OAK_WALL_SIGN
+	public static Material wallSignType(Material standing)
+	{
+		return Material.getMaterial(standing.name().replace("_SIGN", "_WALL_SIGN"));
+	}
+
+	// which side of this sign carries the "[Supply]" header? null if neither
+	public static Side getSupplySide(Sign sign)
+	{
+		if(isSupplyLine(sign.getSide(Side.FRONT).line(0)))
+			return Side.FRONT;
+		if(isSupplyLine(sign.getSide(Side.BACK).line(0)))
+			return Side.BACK;
+		return null;
 	}
 
 	public static Boolean isSupplySign(Sign sign)
 	{
-		if(sign.getLine(0).equals("§1[Supply]"))
-			return true;
-		else
-			return false;
+		return getSupplySide(sign) != null;
 	}
-	
+
 	public static Boolean isSupplySign(Block b)
 	{
-		if(b.getType() != Material.SIGN && b.getType() != Material.WALL_SIGN)
+		if(!isSignType(b.getType()))
 			return false;
-		else
-			return isSupplySign((Sign)b.getState());
+		return isSupplySign((Sign)b.getState());
+	}
 
+	// the text of line 0..3 of the supply side of the sign
+	public static String getLine(Sign sign, int i)
+	{
+		Side side = getSupplySide(sign);
+		if(side == null) side = Side.FRONT;
+		SignSide ss = sign.getSide(side);
+		return plain(ss.line(i));
+	}
+
+	// get the block that has a wall sign on it
+	public static Block getBlockBehindWallSign(Block signBlock)
+	{
+		BlockData data = signBlock.getBlockData();
+		if((isWallSignType(signBlock.getType()) || Tag.WALL_HANGING_SIGNS.isTagged(signBlock.getType())) && data instanceof Directional d)
+			return signBlock.getRelative(d.getFacing().getOppositeFace());
+		return null;
+	}
+
+	/* ---------- chest and dispenser helpers ---------- */
+
+	public static boolean isChest(Block b)
+	{
+		return b.getType() == Material.CHEST;
+	}
+
+	public static boolean isDispenser(Block b)
+	{
+		return b.getType() == Material.DISPENSER;
+	}
+
+	// does this chest/dispenser already have a supply sign attached to it?
+	private static boolean hasSupplySign(Block b)
+	{
+		for(BlockFace f : SIDES)
+		{
+			Block adj = b.getRelative(f);
+			if(isWallSignType(adj.getType()) && b.equals(getBlockBehindWallSign(adj)) && isSupplySign(adj))
+				return true;
+		}
+		return false;
+	}
+
+	// check to see if this is a chest without a supply sign already on it
+	public static boolean isValidChest(Block b)
+	{
+		return isChest(b) && !hasSupplySign(b);
+	}
+
+	// check to see if this is a dispenser without a supply sign already on it
+	public static boolean isValidDispenser(Block b)
+	{
+		return isDispenser(b) && !hasSupplySign(b);
+	}
+
+	// check to see if this is a single wide chest
+	public static boolean isSingleChest(Block b)
+	{
+		return isChest(b) && ((org.bukkit.block.data.type.Chest)b.getBlockData()).getType() == org.bukkit.block.data.type.Chest.Type.SINGLE;
+	}
+
+	// check to see if this is a double chest
+	public static boolean isDoubleChest(Block b)
+	{
+		return isChest(b) && ((org.bukkit.block.data.type.Chest)b.getBlockData()).getType() != org.bukkit.block.data.type.Chest.Type.SINGLE;
+	}
+
+	private static BlockFace clockwise(BlockFace f)
+	{
+		return switch(f) {
+			case NORTH -> BlockFace.EAST;
+			case EAST -> BlockFace.SOUTH;
+			case SOUTH -> BlockFace.WEST;
+			default -> BlockFace.NORTH;
+		};
+	}
+
+	// the other half of a double chest, or null for a single chest
+	public static Block findOtherHalfofChest(Block b)
+	{
+		if(!isChest(b)) return null;
+		org.bukkit.block.data.type.Chest data = (org.bukkit.block.data.type.Chest)b.getBlockData();
+		if(data.getType() == org.bukkit.block.data.type.Chest.Type.SINGLE) return null;
+
+		BlockFace facing = data.getFacing();
+		BlockFace dir = data.getType() == org.bukkit.block.data.type.Chest.Type.LEFT ? clockwise(facing) : clockwise(facing).getOppositeFace();
+		Block other = b.getRelative(dir);
+		return isChest(other) ? other : null;
+	}
+
+	// find a supply sign attached to a chest (either half of a double chest) or dispenser
+	public static Sign getAttachedSign(Block b){
+		if(!isChest(b) && !isDispenser(b))
+			return null;
+
+		Block b2 = isChest(b) ? findOtherHalfofChest(b) : null;
+
+		for(Block part : b2 == null ? new Block[]{b} : new Block[]{b, b2})
+		{
+			for(BlockFace f : SIDES)
+			{
+				Block adj = part.getRelative(f);
+				if(isWallSignType(adj.getType()) && part.equals(getBlockBehindWallSign(adj)) && isSupplySign(adj))
+					return (Sign)adj.getState();
+			}
+		}
+
+		return null;
 	}
 }

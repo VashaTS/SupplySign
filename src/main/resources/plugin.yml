@@ -1,9 +1,32 @@
-name: SupplySign
-main: redsgreens.SupplySign.SupplySign
-version: 1.9.9b
-author: redsgreens
+name:        SupplySign
+version:     ${project.version}
+description: Create [Supply] signs that give players free items and kits
+authors:     [redsgreens, VashaTS]
+website:     https://github.com/VashaTS/SupplySign
+main:        redsgreens.SupplySign.SupplySign
+api-version: '26.2'
 commands:
   supplysign:
-    description: 'Used to reload data and list available SupplySign kits' 
-    usage: '/supplysign <reload | listkits> (Used to reload data and list available SupplySign kits)'
-website: http://dev.bukkit.org/server-mods/supplysign/
+    description: 'Used to reload data and list available SupplySign kits'
+    usage: '/supplysign <reload | listkits>'
+permissions:
+  supplysign.*:
+    description: All SupplySign permissions
+    default: op
+    children:
+      supplysign.create: true
+      supplysign.access: true
+      supplysign.destroy: true
+      supplysign.reload: true
+  supplysign.create:
+    description: Place [Supply] signs
+    default: op
+  supplysign.access:
+    description: Use any [Supply] sign or kit
+    default: op
+  supplysign.destroy:
+    description: Break [Supply] signs and the chests/dispensers they are attached to
+    default: op
+  supplysign.reload:
+    description: Use /supplysign reload
+    default: op

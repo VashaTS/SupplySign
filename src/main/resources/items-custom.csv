@@ -1,3 +1,7 @@
-#Place your custom items in this file, using the format below
-#You can override entries in the items-base.csv file by naming them the same
-#ItemName,ID,Damage,StackSize
+# Place your custom items in this file, using the format below.
+# You can override entries in items-base.csv by naming them the same.
+# alias,MATERIAL[,amount[,potion-type]]
+#   MATERIAL is the Minecraft item name, e.g. DIAMOND_PICKAXE. The amount defaults to the item's max stack size.
+#   Example:  stackofdiamonds,DIAMOND,64
+#   Example:  swiftness,POTION,1,SWIFTNESS
+# The old format is still read:  alias,item id,damage,amount   (for example: stone,1,0,64)

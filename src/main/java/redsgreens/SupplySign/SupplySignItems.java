@@ -1,133 +1,176 @@
 package redsgreens.SupplySign;
 
 import java.io.BufferedReader;
-import java.io.BufferedWriter;
 import java.io.File;
-import java.io.FileReader;
-import java.io.FileWriter;
 import java.io.IOException;
 import java.io.InputStream;
+import java.io.InputStreamReader;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.StandardCopyOption;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.Iterator;
+import java.util.List;
 import java.util.Map;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
+
+import net.kyori.adventure.text.Component;
+
 import org.bukkit.Material;
+import org.bukkit.NamespacedKey;
+import org.bukkit.Registry;
 import org.bukkit.entity.Player;
-import org.bukkit.event.inventory.InventoryType;
 import org.bukkit.inventory.Inventory;
 import org.bukkit.inventory.ItemStack;
+import org.bukkit.potion.PotionType;
 
 public class SupplySignItems {
 
-	private final SupplySign Plugin;	
+	private static final Pattern LEGACY_ID = Pattern.compile("^(\\d+)(?:[:.](\\d+))?$");
 
-	private static Map<String, SupplySignItemStack> ItemsMap = new HashMap<String, SupplySignItemStack>();
+	private final SupplySign Plugin;
+
+	// alias name -> item (items.csv + items-custom.csv)
+	private Map<String, SupplySignItemStack> ItemsMap = new HashMap<String, SupplySignItemStack>();
+	// "diamondpickaxe" -> DIAMOND_PICKAXE: every item of the running Minecraft version
+	private final Map<String, Material> MaterialIndex = new HashMap<String, Material>();
+	// legacy numeric ids (pre-1.13): id -> damage -> material
+	private final Map<Integer, Map<Integer, Material>> LegacyIds = new HashMap<Integer, Map<Integer, Material>>();
 
 	public SupplySignItems(final SupplySign plugin)
 	{
 		Plugin = plugin;
 	}
 
-    // read items.csv file
+	// read the item tables
 	public void loadItems()
 	{
 		try {
+			loadMaterialIndex();
+			loadLegacyIds();
+			ItemsMap = new HashMap<String, SupplySignItemStack>();
 			loadBaseItems();
 			loadCustomItems();
-			loadLegacyItems();
-		} catch (IOException e) {}
-		
-		System.out.println("SupplySign loaded " + ItemsMap.size() + " items.");
+		} catch (IOException e) {
+			Plugin.getLogger().warning("Error loading items: " + e.getMessage());
+		}
+
+		Plugin.getLogger().info("Loaded " + ItemsMap.size() + " item names.");
 	}
 
-	private void loadLegacyItems() throws IOException
+	private static String normalize(String name)
 	{
-		File legacyFile = new File(Plugin.getDataFolder(), "items.csv");
-		if (!legacyFile.exists())
-			return;
+		return name.toLowerCase().replace("minecraft:", "").replace("_", "").replace(" ", "").replace("-", "");
+	}
 
-		Map<String, SupplySignItemStack> legacyMap = new HashMap<String, SupplySignItemStack>();
-		
-		BufferedReader rx = new BufferedReader(new FileReader(legacyFile));
-		try
+	private void loadMaterialIndex()
+	{
+		MaterialIndex.clear();
+		for(Material m : Material.values())
+			if(m.isItem() && !m.isAir())
+				MaterialIndex.put(normalize(m.name()), m);
+	}
+
+	private void loadLegacyIds() throws IOException
+	{
+		LegacyIds.clear();
+		try (InputStream res = SupplySign.class.getResourceAsStream("/legacy-ids.csv"))
 		{
-
-			for (int i = 0; rx.ready(); i++)
+			if(res == null) return;
+			BufferedReader rx = new BufferedReader(new InputStreamReader(res, StandardCharsets.UTF_8));
+			String line;
+			while((line = rx.readLine()) != null)
 			{
-				try
-				{
-					String line = rx.readLine().trim().toLowerCase();
-					if (line.startsWith("#")) continue;
-
-					String[] parts = line.split(",");
-					
-					String itemName = parts[0].toLowerCase();
-					int itemID = Integer.parseInt(parts[1]);
-					Short itemDamage = Short.parseShort(parts[2]);
-					int itemStackSize = Integer.parseInt(parts[3]);
-					
-					SupplySignItemStack stack = new SupplySignItemStack(Material.getMaterial(itemID), itemDamage, itemStackSize);
-
-					if(ItemsMap.containsKey(itemName))
-					{
-						SupplySignItemStack stack2 = ItemsMap.get(itemName);
-						
-						if(stack.getMaterial() != stack2.getMaterial() || stack.getDurability() != stack2.getDurability() || stack.getAmount() != stack2.getAmount())
-						{
-							ItemsMap.remove(itemName);
-							ItemsMap.put(itemName, stack);
-							legacyMap.put(itemName, stack);
-						}
-						
-					}
-					else
-					{
-						ItemsMap.put(itemName, stack);
-						legacyMap.put(itemName, stack);
-					}
-					
-				}
-				catch (Exception ex)
-				{
-					Plugin.logger.warning("Error parsing items.csv on line " + i + ". " + ex.getMessage());
-				}
+				line = line.trim();
+				if(line.isEmpty() || line.startsWith("#")) continue;
+				String[] parts = line.split(",");
+				Material m = Material.getMaterial(parts[2].trim());
+				if(m == null) continue;
+				LegacyIds.computeIfAbsent(Integer.parseInt(parts[0]), k -> new HashMap<Integer, Material>()).put(Integer.parseInt(parts[1]), m);
 			}
 		}
-		finally
-		{
-			rx.close();
-		}
+	}
 
-		if(legacyMap.size() != 0)
+	// look up a pre-1.13 "id" or "id:damage" and return the modern material
+	private Material legacyMaterial(int id, int damage)
+	{
+		Map<Integer, Material> byDamage = LegacyIds.get(id);
+		if(byDamage == null) return null;
+		Material m = byDamage.get(damage);
+		return m != null ? m : byDamage.get(0);
+	}
+
+	private static PotionType potionType(String name)
+	{
+		if(name == null || name.isEmpty()) return null;
+		return Registry.POTION.get(NamespacedKey.minecraft(name.toLowerCase()));
+	}
+
+	// parse one line of items.csv / items-custom.csv; returns false if the line was skipped
+	private boolean parseLine(String line, boolean base)
+	{
+		String[] parts = line.split(",", -1);
+		for(int i = 0; i < parts.length; i++)
+			parts[i] = parts[i].trim();
+		if(parts.length < 2) throw new IllegalArgumentException("expected name,MATERIAL");
+
+		String itemName = parts[0].toLowerCase();
+		Material material;
+		int amount;
+		PotionType potion = null;
+
+		if(parts[1].matches("\\d+"))
 		{
-			File customFile = new File(Plugin.getDataFolder(), "items-custom.csv");
-			BufferedWriter bw = new BufferedWriter(new FileWriter(customFile, true));
-			Iterator<String> i = legacyMap.keySet().iterator();
-			
-			
-			try {
-				while (i.hasNext()) {
-					String itemName = i.next().toLowerCase();
-					if(!itemName.equalsIgnoreCase("rfish") && !itemName.equalsIgnoreCase("cmcart") && !itemName.equalsIgnoreCase("slab") && !itemName.equalsIgnoreCase("redrose") && !itemName.equalsIgnoreCase("step") && !itemName.equalsIgnoreCase("17.1") && !itemName.equalsIgnoreCase("17.2") && !itemName.equalsIgnoreCase("manyarrow") && !itemName.equalsIgnoreCase("air"))
-					{
-						SupplySignItemStack stack = legacyMap.get(itemName);
-						bw.write(itemName + "," + stack.getMaterial().getId() + ","
-								+ stack.getDurability() + "," + stack.getAmount());
-						bw.newLine();
-					}
-				}
-				bw.flush();
-			} 
-			finally {
-				bw.close();
+			// legacy format: name,id,damage,stacksize
+			int id = Integer.parseInt(parts[1]);
+			if(id <= 0) return false;
+			int damage = parts.length > 2 && !parts[2].isEmpty() ? Integer.parseInt(parts[2]) : 0;
+			material = legacyMaterial(id, damage);
+			if(material == null) throw new IllegalArgumentException("unknown legacy item id " + id + ":" + damage);
+			amount = parts.length > 3 && !parts[3].isEmpty() ? Integer.parseInt(parts[3]) : material.getMaxStackSize();
+		}
+		else
+		{
+			material = MaterialIndex.get(normalize(parts[1]));
+			if(material == null)
+			{
+				if(base) return false; // fluids, fire etc. that are not items any more
+				throw new IllegalArgumentException("unknown or non-item material " + parts[1]);
 			}
-			
-
-
+			amount = parts.length > 2 && !parts[2].isEmpty() ? Integer.parseInt(parts[2]) : material.getMaxStackSize();
+			if(parts.length > 3)
+			{
+				potion = potionType(parts[3]);
+				if(potion == null && !parts[3].isEmpty())
+					throw new IllegalArgumentException("unknown potion type " + parts[3]);
+			}
 		}
 
-		legacyFile.renameTo(new File(Plugin.getDataFolder(), "items.csv.old"));
+		ItemsMap.put(itemName, new SupplySignItemStack(material, amount, potion));
+		return true;
+	}
 
+	private void readItemFile(File file, boolean base) throws IOException
+	{
+		List<String> skippedNames = new ArrayList<String>();
+		List<String> lines = Files.readAllLines(file.toPath(), StandardCharsets.UTF_8);
+		for(int i = 0; i < lines.size(); i++)
+		{
+			String line = lines.get(i).trim();
+			if(line.isEmpty() || line.startsWith("#")) continue;
+			try
+			{
+				if(!parseLine(line, base)) skippedNames.add(line.split(",")[0]);
+			}
+			catch (Exception ex)
+			{
+				Plugin.getLogger().warning("Error parsing " + file.getName() + " on line " + (i + 1) + ". " + ex.getMessage());
+			}
+		}
+		if(!skippedNames.isEmpty())
+			Plugin.getLogger().fine("Skipped " + skippedNames.size() + " entries in " + file.getName() + " that are not items in this Minecraft version: " + skippedNames);
 	}
 
 	private void loadCustomItems() throws IOException
@@ -136,171 +179,51 @@ public class SupplySignItems {
 		File itemsFile = new File(Plugin.getDataFolder(), "items-custom.csv");
 		if (!itemsFile.exists())
 		{
-			itemsFile.createNewFile();
-			InputStream res = SupplySign.class.getResourceAsStream("/items-custom.csv");
-			
-			FileWriter tx = new FileWriter(itemsFile);
-			for (int i = 0; (i = res.read()) > 0;) tx.write(i);
-			tx.flush();
-			tx.close();
-			res.close();
-
+			Plugin.saveResource("items-custom.csv", false);
 			return;
 		}
-
-		BufferedReader rx = new BufferedReader(new FileReader(itemsFile));
-		try
-		{
-
-			for (int i = 0; rx.ready(); i++)
-			{
-				try
-				{
-					String line = rx.readLine().trim().toLowerCase();
-					if (line.startsWith("#")) continue;
-
-					String[] parts = line.split(",");
-					
-					String itemName = parts[0].toLowerCase();
-					int itemID = Integer.parseInt(parts[1]);
-					Short itemDamage = Short.parseShort(parts[2]);
-					int itemStackSize = Integer.parseInt(parts[3]);
-
-					if(itemID > 0)
-					{
-						SupplySignItemStack stack = new SupplySignItemStack(Material.getMaterial(itemID), itemDamage, itemStackSize);
-
-						if(ItemsMap.containsKey(itemName))
-							ItemsMap.remove(itemName);
-						
-						ItemsMap.put(itemName, stack);
-					}
-				}
-				catch (Exception ex)
-				{
-					Plugin.logger.warning("Error parsing items-custom.csv on line " + i + ". " + ex.getMessage());
-				}
-			}
-		}
-		finally
-		{
-			rx.close();
-		}
-
-		
+		readItemFile(itemsFile, false);
 	}
 
 	private void loadBaseItems() throws IOException
 	{
-
-		// recreate the file from the one in the jar every time
+		// recreate the reference copy from the one in the jar every time
 		File itemsFile = new File(Plugin.getDataFolder(), "items-base.csv");
-
-		InputStream res = SupplySign.class.getResourceAsStream("/items.csv");
-		if(res != null)
+		try (InputStream res = SupplySign.class.getResourceAsStream("/items.csv"))
 		{
-
-			if (itemsFile.exists())
-				itemsFile.delete();
-
-			itemsFile = new File(Plugin.getDataFolder(), "items-base.csv");
-			itemsFile.createNewFile();
-
-			FileWriter tx = new FileWriter(itemsFile);
-			for (int i = 0; (i = res.read()) > 0;) 
-				tx.write(i);
-			
-			tx.flush();
-			tx.close();
-			res.close();
+			if(res == null) throw new IOException("items.csv is missing from the plugin jar");
+			Files.copy(res, itemsFile.toPath(), StandardCopyOption.REPLACE_EXISTING);
 		}
-		
-		ItemsMap = new HashMap<String, SupplySignItemStack>();
-		ItemsMap.clear();
-		BufferedReader rx = new BufferedReader(new FileReader(itemsFile));
-		try
-		{
-
-			for (int i = 0; rx.ready(); i++)
-			{
-				try
-				{
-					String line = rx.readLine().trim().toLowerCase();
-					if (line.startsWith("#")) continue;
-
-					String[] parts = line.split(",");
-					
-					String itemName = parts[0].toLowerCase();
-					int itemID = Integer.parseInt(parts[1]);
-					Short itemDamage = Short.parseShort(parts[2]);
-					Material material = Material.getMaterial(itemID);
-					SupplySignItemStack stack = new SupplySignItemStack(material, itemDamage, material.getMaxStackSize());
-					
-					ItemsMap.put(itemName, stack);
-					
-				}
-				catch (Exception ex)
-				{
-					Plugin.logger.warning("Error parsing items-base.csv on line " + i + ". " + ex.getMessage());
-				}
-			}
-		}
-		finally
-		{
-			rx.close();
-		}
-
+		readItemFile(itemsFile, true);
 	}
-	
-	// return an ItemStack from by name
-	public ItemStack getItem(String id) 
+
+	// return an ItemStack by name; null if the name is unknown
+	public ItemStack getItem(String id)
 	{
+		String id2 = SupplySignUtil.stripColorCodes(id).trim().toLowerCase();
+
 		// see if it's in the config files
-		String id2 = SupplySignUtil.stripColorCodes(id.toLowerCase());
-		if (ItemsMap.containsKey(id2)){
-			ItemStack is = ItemsMap.get(id2).getItemStack();
-			return is;
-		}
-		
-		try
+		SupplySignItemStack known = ItemsMap.get(id2);
+		if(known == null)
+			known = ItemsMap.get(normalize(id2));
+		if(known != null)
+			return known.getItemStack();
+
+		// not in the config files: any item of this Minecraft version by its name, e.g. "diamond_pickaxe" or "minecraft:diamond"
+		Material m = MaterialIndex.get(normalize(id2));
+		if(m != null)
+			return new ItemStack(m, m.getMaxStackSize());
+
+		// pre-1.13 numeric ids: "id" or "id:damage" (or "id.damage")
+		Matcher legacy = LEGACY_ID.matcher(id2);
+		if(legacy.matches())
 		{
-			// not in config files, see if bukkit can parse it
-			Material m = Material.getMaterial(id2);
-			if(m != null)
+			int damage = legacy.group(2) != null ? Integer.parseInt(legacy.group(2)) : 0;
+			m = legacyMaterial(Integer.parseInt(legacy.group(1)), damage);
+			if(m != null && m.isItem())
 				return new ItemStack(m, m.getMaxStackSize());
-
-			try
-			{
-				Integer i = Integer.parseInt(id2);
-				m = Material.getMaterial(i);
-				if(m != null)
-					return new ItemStack(m, m.getMaxStackSize());
-			}
-			catch(NumberFormatException nfex) {}
-			
-			// replace . with : (to allow either . or : to separate item and durability)
-			if(id2.contains("."))
-				id2.replace(".", ":");
-			
-			// there's a : in the string, see if it looks like itemid:durability
-			if(id2.contains(":"))
-			{
-				String split[] = id2.split(":");
-				if(split.length == 2)
-				{
-					Integer i = Integer.parseInt(split[0]);
-					Short d = Short.parseShort(split[1]);
-					m = Material.getMaterial(i);
-					return new ItemStack(m, m.getMaxStackSize(), d);
-				}
-			}
-
 		}
-		catch(Exception e) 
-		{
-			e.printStackTrace();
-		}
-		
+
 		return null;
 	}
 
@@ -312,13 +235,11 @@ public class SupplySignItems {
 		{
 			ItemStack is = getItem(itr.next().toString());
 			if(is != null)
-				items.add(is);			
+				items.add(is);
 		}
-		
-		Inventory inv = Plugin.getServer().createInventory(null, InventoryType.PLAYER);
-		
-		// clear the inventory
-		inv.clear();
+
+		// 36 slots = four rows of nine, the layout the arrangements below were written for
+		Inventory inv = Plugin.getServer().createInventory(null, 36, Component.text("SupplySign"));
 
 		try {
 			switch(items.size()){
@@ -335,7 +256,7 @@ public class SupplySignItems {
 				for(int i=0; i<18; i++)
 					inv.setItem(i+18, items.get(1));
 				break;
-			
+
 			case 3:
 					for(int i=0; i<4; i++){
 						inv.setItem((i*9), items.get(0)); inv.setItem((i*9)+1, items.get(0)); inv.setItem((i*9)+2, items.get(0));
@@ -343,7 +264,7 @@ public class SupplySignItems {
 						inv.setItem((i*9)+6, items.get(2)); inv.setItem((i*9)+7, items.get(2)); inv.setItem((i*9)+8, items.get(2));
 					}
 				break;
-				
+
 			case 4:
 					for(int i=0; i<4; i++)
 						for(int j=0; j<9; j++)
@@ -359,7 +280,7 @@ public class SupplySignItems {
 						inv.setItem((k*9)+8, items.get(4));
 					}
 				break;
-				
+
 			case 6:
 				for(int i=0; i<2; i++){
 					inv.setItem((i*9), items.get(0)); inv.setItem((i*9)+1, items.get(0)); inv.setItem((i*9)+2, items.get(0));
@@ -380,10 +301,10 @@ public class SupplySignItems {
 						int jmax;
 						if(i % 2 == 0) jmax = 5;
 						else jmax = 4;
-						
+
 						for(int j=0; j<jmax; j++)
 							  inv.setItem(pos1++, items.get(i));
-						
+
 					}
 				break;
 
@@ -408,12 +329,12 @@ public class SupplySignItems {
 						for(int i=0; i<9; i++)
 							  inv.setItem(pos3++, items.get(i));
 				break;
-				
+
 			case 10:
 			case 11:
 			case 12:
 				int pos4 = 0;
-					for(int i=0; i<itemList.size(); i++)
+					for(int i=0; i<items.size(); i++)
 						for(int j=0; j<3; j++)
 							  inv.setItem(pos4++, items.get(i));
 				break;
@@ -425,7 +346,7 @@ public class SupplySignItems {
 			case 17:
 			case 18:
 				int pos;
-				for(int i=0; i<itemList.size(); i++){
+				for(int i=0; i<items.size(); i++){
 					if(i<9)
 						pos=i;
 					else pos=i+9;
@@ -433,16 +354,16 @@ public class SupplySignItems {
 					inv.setItem(pos+9, items.get(i));
 				}
 				break;
-				
-			default: 
-				for(int i=0; i<itemList.size(); i++)
+
+			default:
+				for(int i=0; i<Math.min(items.size(), 36); i++)
 					inv.setItem(i, items.get(i));
 			}
 		} catch (Exception e) {
-			e.printStackTrace();
+			Plugin.getLogger().warning("Error arranging supply inventory: " + e);
 		}
-		
-		// show the inventory dialog 
+
+		// show the inventory dialog
 		p.openInventory(inv);
 	}
 

@@ -1,0 +1,10 @@
+.idea/
+.target/
+target/
+*.iml
+.classpath
+.project
+.settings/
+.vscode/
+*.jar
+!**/src/**/*.jar

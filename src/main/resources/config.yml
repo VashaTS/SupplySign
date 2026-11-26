@@ -4,12 +4,13 @@
 #
 # Allowed values are: Yes (shows errors to players)
 #                     No (errors only show up in server console)
-# 
+#
 ShowErrorsInClient: Yes
 
 #
-# AllowNonOpAccess: if there is no permissions plugin loaded, then this setting 
-#                   allows users without op status to access signs
+# AllowNonOpAccess: lets users without op status use supply signs even if they have no
+#                   supplysign.access permission. Players still need the permission to create
+#                   or destroy signs.
 #
 # Allowed values are: Yes
 #                     No
@@ -17,7 +18,7 @@ ShowErrorsInClient: Yes
 AllowNonOpAccess: No
 
 #
-# FixSignOnSignGlitch: this setting fixes the glitch where a player can place a sign 
+# FixSignOnSignGlitch: this setting fixes the glitch where a player can place a sign
 #                      on another sign
 #
 # Allowed values are: SupplySignOnly (only fixes glitch for SupplySigns)

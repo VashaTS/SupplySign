@@ -2,56 +2,75 @@ package redsgreens.SupplySign;
 
 import org.bukkit.Material;
 import org.bukkit.inventory.ItemStack;
+import org.bukkit.inventory.meta.PotionMeta;
+import org.bukkit.potion.PotionType;
 
+/**
+ * One entry of the item tables: a material, a stack size and an optional potion type.
+ */
 public class SupplySignItemStack {
 
-	private Material material;
-	private Short durability;
-	private Integer amount;
+	private final Material material;
+	private final int amount;
+	private final PotionType potionType;
 
-	public SupplySignItemStack(Material m, Short d, Integer a)
+	public SupplySignItemStack(Material m, int a)
+	{
+		this(m, a, null);
+	}
+
+	public SupplySignItemStack(Material m, int a, PotionType p)
 	{
 		material = m;
-		durability = d;
-		amount = a;
+		amount = Math.max(1, Math.min(99, a));
+		potionType = p;
 	}
 
 	public ItemStack getItemStack()
 	{
-		return new ItemStack(material, amount, durability);
+		ItemStack stack = new ItemStack(material, amount);
+		if(potionType != null && stack.getItemMeta() instanceof PotionMeta meta)
+		{
+			meta.setBasePotionType(potionType);
+			stack.setItemMeta(meta);
+		}
+		return stack;
 	}
-	
-	public Short getDurability()
-	{
-		return durability;
-	}
-	
+
 	public Material getMaterial()
 	{
 		return material;
 	}
-	
-	public Integer getAmount()
+
+	public int getAmount()
 	{
 		return amount;
 	}
-	
-	public boolean equals(Object other) 
+
+	public PotionType getPotionType()
 	{
-	    if (this == other)
-	      return true;
-	    if (!(other instanceof SupplySignItemStack))
-	      return false;
-	    SupplySignItemStack otherIS = (SupplySignItemStack) other;
-	    return (this.material == otherIS.getMaterial() && this.durability == otherIS.getDurability() && this.amount == otherIS.getAmount()); 
+		return potionType;
 	}
 
-	public int hashCode() { 
-		return this.material.hashCode() + this.durability.hashCode();	
+	@Override
+	public boolean equals(Object other)
+	{
+		if (this == other)
+			return true;
+		if (!(other instanceof SupplySignItemStack otherIS))
+			return false;
+		return this.material == otherIS.material && this.amount == otherIS.amount && java.util.Objects.equals(this.potionType, otherIS.potionType);
 	}
-	
+
+	@Override
+	public int hashCode()
+	{
+		return java.util.Objects.hash(material, amount, potionType);
+	}
+
+	@Override
 	public String toString()
 	{
-		return "Material=" + material.name().toLowerCase() + ", Durability=" + durability.toString() + ", Amount=" + amount.toString();
+		return "Material=" + material.name().toLowerCase() + ", Amount=" + amount + (potionType != null ? ", Potion=" + potionType : "");
 	}
 }
