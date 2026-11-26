@@ -1,5 +1,7 @@
 # SupplySign
 
+<img src="icon.png" alt="SupplySign icon: an oak chest and a [Supply] sign" width="128" height="128" align="right">
+
 SupplySign is a Paper/Bukkit plugin that lets admins place `[Supply]` signs that give players unlimited items or kits. Right-click the sign (or the chest it is attached to) to open a chest-like window full of the listed items, and take what you need. This repository is a maintained fork of [redsgreens/SupplySign][1], ported to modern Paper. The original plugin was last updated in 2021 (Minecraft 1.12).
 
 [1]: https://github.com/redsgreens/SupplySign
